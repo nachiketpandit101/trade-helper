@@ -1,0 +1,14 @@
+# Secrets
+.env
+
+# Build artifacts
+/trade-helper
+/trade-helper.exe
+/bin/
+/dist/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
