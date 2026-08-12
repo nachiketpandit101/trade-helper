@@ -37,6 +37,7 @@ func main() {
 
 func run() error {
 	watchFlag := flag.Bool("watch", false, "poll on FETCH_INTERVAL until interrupted")
+	jsonFlag := flag.Bool("json", false, "print JSON instead of colored text")
 	flag.Parse()
 
 	// .env is optional -- a missing file is fine as long as the env vars
@@ -53,12 +54,15 @@ func run() error {
 	if *watchFlag {
 		cfg.Watch = true
 	}
+	if *jsonFlag {
+		cfg.JSON = true
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	fetcher := news.New(cfg.APIKey)
-	printer := output.New(os.Stdout)
+	printer := output.New(os.Stdout, cfg.JSON)
 
 	scan := func() error {
 		scanCtx, cancelScan := context.WithTimeout(ctx, 30*time.Second)
@@ -94,7 +98,9 @@ func run() error {
 }
 
 func scanTickers(ctx context.Context, cfg *config.Config, fetcher *news.Fetcher, printer *output.Printer) error {
-	printer.PrintHeader(len(cfg.Tickers))
+	if !printer.JSON() {
+		printer.PrintHeader(len(cfg.Tickers))
+	}
 
 	type outcome struct {
 		ticker string
@@ -124,13 +130,35 @@ func scanTickers(ctx context.Context, cfg *config.Config, fetcher *news.Fetcher,
 	wg.Wait()
 
 	hadError := false
-	for _, o := range outcomes {
-		if o.err != nil {
-			printer.PrintError(o.ticker, o.err)
-			hadError = true
-			continue
+	if printer.JSON() {
+		rep := output.Report{ScannedAt: time.Now(), Tickers: make([]output.ReportRow, 0, len(outcomes))}
+		for _, o := range outcomes {
+			if o.err != nil {
+				rep.Tickers = append(rep.Tickers, output.ReportRow{Ticker: o.ticker, Error: o.err.Error()})
+				hadError = true
+				continue
+			}
+			rep.Tickers = append(rep.Tickers, output.ReportRow{
+				Ticker:       o.result.Ticker,
+				Signal:       string(o.result.Signal),
+				Reason:       o.result.Reason,
+				ArticleCount: o.result.ArticleCount,
+				BullishHits:  o.result.BullishHits,
+				BearishHits:  o.result.BearishHits,
+			})
 		}
-		printer.PrintResult(o.result)
+		if err := printer.PrintJSON(rep); err != nil {
+			return err
+		}
+	} else {
+		for _, o := range outcomes {
+			if o.err != nil {
+				printer.PrintError(o.ticker, o.err)
+				hadError = true
+				continue
+			}
+			printer.PrintResult(o.result)
+		}
 	}
 
 	if hadError {

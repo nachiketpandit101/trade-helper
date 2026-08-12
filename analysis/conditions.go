@@ -22,12 +22,12 @@ const (
 
 // Result is the analysis output for a single ticker.
 type Result struct {
-	Ticker       string
-	Signal       Signal
-	Reason       string
-	ArticleCount int
-	BullishHits  map[string]int
-	BearishHits  map[string]int
+	Ticker       string         `json:"ticker"`
+	Signal       Signal         `json:"signal"`
+	Reason       string         `json:"reason"`
+	ArticleCount int            `json:"article_count"`
+	BullishHits  map[string]int `json:"bullish_hits,omitempty"`
+	BearishHits  map[string]int `json:"bearish_hits,omitempty"`
 }
 
 // bullishKeywords / bearishKeywords are matched as whole words against

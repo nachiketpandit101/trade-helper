@@ -1,10 +1,11 @@
-// Package output renders analysis results to the terminal with
-// ANSI color codes. Colors are disabled automatically when stdout is
-// not a TTY or the NO_COLOR environment variable is set
+// Package output renders analysis results as colored terminal text or JSON.
+// Colors are disabled automatically when stdout is not a TTY, when JSON
+// mode is on, or when the NO_COLOR environment variable is set
 // (see https://no-color.org/).
 package output
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -27,19 +28,50 @@ const (
 type Printer struct {
 	w      io.Writer
 	colors bool
+	json   bool
 }
 
 // New returns a Printer that writes to w. If w is nil, os.Stdout is used.
-// Color output is auto-detected: disabled when NO_COLOR is set or when
-// the target writer is not a terminal.
-func New(w io.Writer) *Printer {
+// Color output is auto-detected: disabled when NO_COLOR is set, when
+// the target writer is not a terminal, or when jsonMode is true.
+func New(w io.Writer, jsonMode bool) *Printer {
 	if w == nil {
 		w = os.Stdout
 	}
 	return &Printer{
 		w:      w,
-		colors: shouldUseColor(w),
+		json:   jsonMode,
+		colors: !jsonMode && shouldUseColor(w),
 	}
+}
+
+// Report is one scan cycle, used by JSON output.
+type Report struct {
+	ScannedAt time.Time   `json:"scanned_at"`
+	Tickers   []ReportRow `json:"tickers"`
+}
+
+// ReportRow is a single ticker in a Report.
+type ReportRow struct {
+	Ticker       string         `json:"ticker"`
+	Signal       string         `json:"signal,omitempty"`
+	Reason       string         `json:"reason,omitempty"`
+	ArticleCount int            `json:"article_count,omitempty"`
+	BullishHits  map[string]int `json:"bullish_hits,omitempty"`
+	BearishHits  map[string]int `json:"bearish_hits,omitempty"`
+	Error        string         `json:"error,omitempty"`
+}
+
+// PrintJSON writes a single JSON document (one line-delimited object).
+func (p *Printer) PrintJSON(r Report) error {
+	enc := json.NewEncoder(p.w)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(r)
+}
+
+// JSON reports whether this printer is in JSON mode.
+func (p *Printer) JSON() bool {
+	return p.json
 }
 
 // PrintHeader prints a one-line banner before the per-ticker results.

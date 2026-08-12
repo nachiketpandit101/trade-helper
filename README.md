@@ -19,7 +19,7 @@ trade-helper/
 ├── config/config.go         # env loading + validation
 ├── news/fetcher.go          # Finnhub company-news client (stdlib only)
 ├── analysis/conditions.go   # keyword sentiment → signal
-├── output/printer.go        # colored terminal output
+├── output/printer.go        # colored terminal / JSON output
 ├── go.mod / go.sum          # only dep: github.com/joho/godotenv
 ├── .env.example
 └── README.md
@@ -57,6 +57,7 @@ trade-helper/
 ```bash
 go run .
 go run . --watch
+go run . --json
 ```
 
 Or build a binary:
@@ -79,6 +80,9 @@ NVDA    NEUTRAL      scanned 41 article(s); no bullish or bearish keywords match
 Colors are disabled automatically when stdout is not a terminal or when
 the `NO_COLOR` environment variable is set.
 
+`--json` (or `OUTPUT_FORMAT=json`) prints one JSON object per scan
+instead of the colored table, suitable for cron, bots, or piping.
+
 ## Configuration reference
 
 | Variable          | Required | Description                                                            |
@@ -87,6 +91,7 @@ the `NO_COLOR` environment variable is set.
 | `TICKERS`         | yes      | Comma-separated stock symbols, e.g. `AAPL,TSLA,NVDA`.                  |
 | `FETCH_INTERVAL`  | no       | Duration (`15m`, `1h`) or bare minutes. Default `15m`. Used by `--watch`. |
 | `WATCH`           | no       | `true`/`1` to poll until interrupted. Same as `--watch`. Default off.  |
+| `OUTPUT_FORMAT`   | no       | `text` (default) or `json`. Same as `--json`.                          |
 
 Environment variables can be supplied via `.env`, your shell, or your
 deployment system. The `.env` file is optional — if it's missing,
@@ -118,4 +123,3 @@ model. The signal whose keyword score is higher wins; ties resolve to
 ## Roadmap
 
 - Pluggable sentiment backends
-- JSON output mode for piping into other tools

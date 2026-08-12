@@ -24,6 +24,9 @@ type Config struct {
 
 	// Watch, when true, polls on FetchInterval until interrupted.
 	Watch bool
+
+	// JSON, when true, prints a JSON report instead of colored text.
+	JSON bool
 }
 
 // Load reads configuration from environment variables and returns a
@@ -55,6 +58,7 @@ func Load() (*Config, error) {
 		Tickers:       tickers,
 		FetchInterval: interval,
 		Watch:         envTruthy(os.Getenv("WATCH")),
+		JSON:          strings.EqualFold(strings.TrimSpace(os.Getenv("OUTPUT_FORMAT")), "json"),
 	}, nil
 }
 
