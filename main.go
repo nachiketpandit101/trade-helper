@@ -2,16 +2,18 @@
 // configured tickers, runs a simple keyword sentiment scan, and prints
 // a per-ticker BUY/SELL/HOLD-style signal to the terminal.
 //
-// This build runs once and exits. A polling loop on FetchInterval is
-// planned for a follow-up.
+// The default is a single scan. Pass --watch (or set WATCH=true) to poll
+// on FetchInterval until interrupted.
 package main
 
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -31,6 +33,9 @@ func main() {
 }
 
 func run() error {
+	watchFlag := flag.Bool("watch", false, "poll on FETCH_INTERVAL until interrupted")
+	flag.Parse()
+
 	// .env is optional -- a missing file is fine as long as the env vars
 	// are set some other way (CI, shell export, etc.). Any other load
 	// error (malformed file, permission denied) should be surfaced.
@@ -42,16 +47,50 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if *watchFlag {
+		cfg.Watch = true
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// Give the whole run a hard ceiling so a hung HTTP call can't pin the CLI.
-	ctx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelTimeout()
-
 	fetcher := news.New(cfg.APIKey)
 	printer := output.New(os.Stdout)
+
+	scan := func() error {
+		scanCtx, cancelScan := context.WithTimeout(ctx, 30*time.Second)
+		defer cancelScan()
+		return scanTickers(scanCtx, cfg, fetcher, printer)
+	}
+
+	if err := scan(); !cfg.Watch {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "trade-helper: watching every %s (Ctrl+C to stop)\n", cfg.FetchInterval)
+
+	ticks := time.NewTicker(cfg.FetchInterval)
+	defer ticks.Stop()
+
+	var busy atomic.Bool
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticks.C:
+			if !busy.CompareAndSwap(false, true) {
+				fmt.Fprintf(os.Stderr, "trade-helper: skipping cycle; previous scan still running\n")
+				continue
+			}
+			go func() {
+				defer busy.Store(false)
+				_ = scan()
+			}()
+		}
+	}
+}
+
+func scanTickers(ctx context.Context, cfg *config.Config, fetcher *news.Fetcher, printer *output.Printer) error {
 	printer.PrintHeader(len(cfg.Tickers))
 
 	hadError := false
@@ -62,8 +101,7 @@ func run() error {
 			hadError = true
 			continue
 		}
-		result := analysis.Analyze(ticker, articles)
-		printer.PrintResult(result)
+		printer.PrintResult(analysis.Analyze(ticker, articles))
 	}
 
 	if hadError {

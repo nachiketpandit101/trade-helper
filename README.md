@@ -8,8 +8,8 @@ keyword sentiment scan, and prints a per-ticker trade signal:
 - `UNFAVORABLE` (red) — bearish keywords dominate
 - `NEUTRAL` (yellow) — tie, or no signal-bearing keywords found
 
-The app runs once and exits. A polling loop on `FETCH_INTERVAL` is
-planned for a follow-up.
+The app runs once and exits by default. Pass `--watch` (or set
+`WATCH=true`) to poll on `FETCH_INTERVAL` until interrupted.
 
 ## Project layout
 
@@ -56,6 +56,7 @@ trade-helper/
 
 ```bash
 go run .
+go run . --watch
 ```
 
 Or build a binary:
@@ -69,7 +70,7 @@ go build -o trade-helper .
 Example output:
 
 ```
-trade-helper: scanned 3 ticker(s)
+2026-08-11 19:40:01  trade-helper: scanned 3 ticker(s)
 AAPL    FAVORABLE    bullish keywords lead 4 to 1 (upgrade:2, beat:1, strong:1)  (37 articles)
 TSLA    UNFAVORABLE  bearish keywords lead 3 to 0 (lawsuit:2, investigation:1)   (28 articles)
 NVDA    NEUTRAL      scanned 41 article(s); no bullish or bearish keywords matched (41 articles)
@@ -84,7 +85,8 @@ the `NO_COLOR` environment variable is set.
 | ----------------- | -------- | ---------------------------------------------------------------------- |
 | `FINNHUB_API_KEY` | yes      | Your Finnhub API token.                                                |
 | `TICKERS`         | yes      | Comma-separated stock symbols, e.g. `AAPL,TSLA,NVDA`.                  |
-| `FETCH_INTERVAL`  | no       | Duration (`15m`, `1h`) or bare minutes. Default `15m`. Used by loop mode. |
+| `FETCH_INTERVAL`  | no       | Duration (`15m`, `1h`) or bare minutes. Default `15m`. Used by `--watch`. |
+| `WATCH`           | no       | `true`/`1` to poll until interrupted. Same as `--watch`. Default off.  |
 
 Environment variables can be supplied via `.env`, your shell, or your
 deployment system. The `.env` file is optional — if it's missing,
@@ -108,11 +110,12 @@ model. The signal whose keyword score is higher wins; ties resolve to
 - Per-ticker fetch failures (bad symbol, 401/403/429, network) are
   printed inline and the run continues with the remaining tickers.
 - If any ticker errored, the process exits with status 1 after printing
-  every ticker, so it's safe to use in cron / CI.
+  every ticker, so it's safe to use in cron / CI. Watch mode keeps
+  polling and exits 0 on Ctrl+C.
+- A scan that overruns `FETCH_INTERVAL` causes the next cycle to be skipped.
 
 ## Roadmap
 
-- Polling loop driven by `FETCH_INTERVAL`
 - Concurrent fetches across tickers
 - Pluggable sentiment backends
 - JSON output mode for piping into other tools

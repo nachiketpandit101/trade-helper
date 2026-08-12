@@ -19,11 +19,11 @@ type Config struct {
 	// Tickers is the list of stock symbols to monitor (uppercased).
 	Tickers []string
 
-	// FetchInterval is how often the app would poll Finnhub if it were
-	// running in a loop. The current build runs once and exits, but the
-	// value is parsed and surfaced now so the loop can be added later
-	// without changing the config contract.
+	// FetchInterval is how often the app polls Finnhub in watch mode.
 	FetchInterval time.Duration
+
+	// Watch, when true, polls on FetchInterval until interrupted.
+	Watch bool
 }
 
 // Load reads configuration from environment variables and returns a
@@ -54,7 +54,17 @@ func Load() (*Config, error) {
 		APIKey:        apiKey,
 		Tickers:       tickers,
 		FetchInterval: interval,
+		Watch:         envTruthy(os.Getenv("WATCH")),
 	}, nil
+}
+
+func envTruthy(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // parseTickers splits the comma-separated TICKERS env var, trims and

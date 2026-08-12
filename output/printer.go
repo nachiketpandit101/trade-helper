@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/nachi/trade-helper/analysis"
 )
@@ -43,8 +44,9 @@ func New(w io.Writer) *Printer {
 
 // PrintHeader prints a one-line banner before the per-ticker results.
 func (p *Printer) PrintHeader(count int) {
-	fmt.Fprintf(p.w, "%strade-helper: scanned %d ticker(s)%s\n",
-		p.style(ansiBold), count, p.style(ansiReset))
+	ts := time.Now().Format("2006-01-02 15:04:05")
+	fmt.Fprintf(p.w, "%s%s  trade-helper: scanned %d ticker(s)%s\n",
+		p.style(ansiBold), ts, count, p.style(ansiReset))
 }
 
 // PrintResult prints a single ticker's signal and reason.
