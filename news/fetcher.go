@@ -25,6 +25,8 @@ const (
 	maxResponseBytes  = 5 * 1024 * 1024 // 5 MiB safety cap
 	defaultUserAgent  = "trade-helper/0.1 (+https://github.com/nachi/trade-helper)"
 	dateLayoutFinnhub = "2006-01-02"
+	maxRetries        = 3
+	initialBackoff    = 500 * time.Millisecond
 )
 
 // Article is the subset of the Finnhub company-news payload that the rest
@@ -97,7 +99,8 @@ func New(apiKey string, opts ...Option) *Fetcher {
 
 // FetchCompanyNews returns recent articles for a single ticker symbol.
 // It returns a clear error when the symbol is empty, the API rejects the
-// request, or the response cannot be decoded.
+// request, or the response cannot be decoded. HTTP 429 responses are
+// retried a few times with exponential backoff.
 func (f *Fetcher) FetchCompanyNews(ctx context.Context, symbol string) ([]Article, error) {
 	symbol = strings.ToUpper(strings.TrimSpace(symbol))
 	if symbol == "" {
@@ -107,6 +110,30 @@ func (f *Fetcher) FetchCompanyNews(ctx context.Context, symbol string) ([]Articl
 		return nil, fmt.Errorf("missing Finnhub API key")
 	}
 
+	var lastErr error
+	backoff := initialBackoff
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		articles, retryable, err := f.fetchOnce(ctx, symbol)
+		if err == nil {
+			return articles, nil
+		}
+		lastErr = err
+		if !retryable || attempt == maxRetries-1 {
+			return nil, err
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("request finnhub for %s: %w", symbol, ctx.Err())
+		case <-timer.C:
+		}
+		backoff *= 2
+	}
+	return nil, lastErr
+}
+
+func (f *Fetcher) fetchOnce(ctx context.Context, symbol string) ([]Article, bool, error) {
 	to := f.now().UTC()
 	from := to.Add(-f.lookback)
 
@@ -120,24 +147,24 @@ func (f *Fetcher) FetchCompanyNews(ctx context.Context, symbol string) ([]Articl
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build request for %s: %w", symbol, err)
+		return nil, false, fmt.Errorf("build request for %s: %w", symbol, err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", defaultUserAgent)
 
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request finnhub for %s: %w", symbol, err)
+		return nil, false, fmt.Errorf("request finnhub for %s: %w", symbol, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return nil, fmt.Errorf("read finnhub response for %s: %w", symbol, err)
+		return nil, false, fmt.Errorf("read finnhub response for %s: %w", symbol, err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, classifyHTTPError(symbol, resp.StatusCode, body)
+		return nil, resp.StatusCode == http.StatusTooManyRequests, classifyHTTPError(symbol, resp.StatusCode, body)
 	}
 
 	var articles []Article
@@ -148,12 +175,12 @@ func (f *Fetcher) FetchCompanyNews(ctx context.Context, symbol string) ([]Articl
 			Error string `json:"error"`
 		}
 		if jsonErr := json.Unmarshal(body, &apiErr); jsonErr == nil && apiErr.Error != "" {
-			return nil, fmt.Errorf("finnhub error for %s: %s", symbol, apiErr.Error)
+			return nil, false, fmt.Errorf("finnhub error for %s: %s", symbol, apiErr.Error)
 		}
-		return nil, fmt.Errorf("decode finnhub response for %s: %w", symbol, err)
+		return nil, false, fmt.Errorf("decode finnhub response for %s: %w", symbol, err)
 	}
 
-	return articles, nil
+	return articles, false, nil
 }
 
 // classifyHTTPError turns non-2xx responses into user-friendly errors.

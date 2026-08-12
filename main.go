@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -24,6 +25,8 @@ import (
 	"github.com/nachi/trade-helper/news"
 	"github.com/nachi/trade-helper/output"
 )
+
+const maxConcurrentFetches = 3
 
 func main() {
 	if err := run(); err != nil {
@@ -93,15 +96,41 @@ func run() error {
 func scanTickers(ctx context.Context, cfg *config.Config, fetcher *news.Fetcher, printer *output.Printer) error {
 	printer.PrintHeader(len(cfg.Tickers))
 
+	type outcome struct {
+		ticker string
+		result analysis.Result
+		err    error
+	}
+	outcomes := make([]outcome, len(cfg.Tickers))
+	sem := make(chan struct{}, maxConcurrentFetches)
+	var wg sync.WaitGroup
+
+	for i, ticker := range cfg.Tickers {
+		i, ticker := i, ticker
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			articles, err := fetcher.FetchCompanyNews(ctx, ticker)
+			if err != nil {
+				outcomes[i] = outcome{ticker: ticker, err: err}
+				return
+			}
+			outcomes[i] = outcome{ticker: ticker, result: analysis.Analyze(ticker, articles)}
+		}()
+	}
+	wg.Wait()
+
 	hadError := false
-	for _, ticker := range cfg.Tickers {
-		articles, err := fetcher.FetchCompanyNews(ctx, ticker)
-		if err != nil {
-			printer.PrintError(ticker, err)
+	for _, o := range outcomes {
+		if o.err != nil {
+			printer.PrintError(o.ticker, o.err)
 			hadError = true
 			continue
 		}
-		printer.PrintResult(analysis.Analyze(ticker, articles))
+		printer.PrintResult(o.result)
 	}
 
 	if hadError {

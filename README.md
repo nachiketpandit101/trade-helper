@@ -113,9 +113,9 @@ model. The signal whose keyword score is higher wins; ties resolve to
   every ticker, so it's safe to use in cron / CI. Watch mode keeps
   polling and exits 0 on Ctrl+C.
 - A scan that overruns `FETCH_INTERVAL` causes the next cycle to be skipped.
+- Tickers are fetched a few at a time. HTTP 429 responses are retried with backoff.
 
 ## Roadmap
 
-- Concurrent fetches across tickers
 - Pluggable sentiment backends
 - JSON output mode for piping into other tools
